@@ -28,6 +28,8 @@ app.use(express.json());
 
 let userEmail = ''; // Variable global para almacenar el email
 let userId = ''; // Variable global para almacenar el id del usuario
+let aulaId = ''; // Variable global para almacenar el id del aula
+let groupMateriaProfesorId;
 
 // Middleware para almacenar el email y el id del usuario en la solicitud
 const storeUserMiddleware = (req, res, next) => {
@@ -44,13 +46,31 @@ const storeUserMiddleware = (req, res, next) => {
       if (result.length > 0) {
         userId = result[0].id_profesor; // Asignar el id a la variable global
         console.log('ID del usuario:', userId); // Verificar el ID del usuario
-        next();
+        
+        // Realizar la segunda consulta para obtener id_grupo_materia_profesor
+        const secondSql = 'SELECT id_grupo_materia_profesor FROM grupo_materia_profesor WHERE id_profesor = ?';
+        db.query(secondSql, [userId], (secondErr, secondResult) => {
+          if (secondErr) {
+            console.error('Error al obtener id_grupo_materia_profesor:', secondErr);
+            res.status(500).json({ message: 'Error al obtener id_grupo_materia_profesor' });
+          } else {
+            if (secondResult.length > 0) {
+              groupMateriaProfesorId = secondResult[0].id_grupo_materia_profesor; // Asignar el id_grupo_materia_profesor a la variable global
+              console.log('ID del grupo_materia_profesor:', groupMateriaProfesorId); // Verificar el ID del grupo_materia_profesor
+              next();
+            } else {
+              res.status(404).json({ message: 'Grupo de materia de profesor no encontrado' });
+            }
+          }
+        });
       } else {
         res.status(404).json({ message: 'Usuario no encontrado' });
       }
     }
   });
 };
+
+
 
 // Ruta para manejar la autenticación
 app.post('/login', storeUserMiddleware, (req, res) => {
@@ -138,6 +158,125 @@ app.get('/horario', (req, res) => {
       res.json(clases);
       console.log("datos:", clases)
     }
+  });
+});
+
+
+app.get('/info_aula', (req, res) => {
+
+  // Verificar si hay un ID de profesor almacenado en la variable global
+  if (!userId) {
+    return res.status(400).json({ message: 'ID del profesor no encontrado' });
+  }
+
+  // Obtener la hora actual
+  const horaActual = new Date();
+
+  // Restar una hora
+  horaActual.setHours(horaActual.getHours() - 1);
+
+  // Formatear la hora actual en formato HH:MM:SS
+  const options = { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    second: '2-digit', 
+    timeZone: 'America/Mexico_City' 
+  };
+
+  const horaMenosUnaHora = horaActual.toLocaleTimeString('es-MX', options);
+  console.log(horaMenosUnaHora);
+
+  const fechaActual = new Date();
+  let dia = fechaActual.getDay(); // 0: Domingo, 1: Lunes, ..., 6: Sábado
+
+  // Convertir Domingo (0) a 7 para que coincida con la convención de Lunes (1) a Domingo (7)
+  if (dia === 0) {
+    dia = 7;
+  }
+  
+  console.log(dia)
+
+  // Consulta para crear la vista
+  const createViewSQL = `
+  CREATE OR REPLACE VIEW vista_aulas_profesor AS
+  SELECT h.id_grupo_materia_profesor, a.id_aula, a.nombre_aula, h.id_hora, hh.dia_semana
+  FROM horario h
+  JOIN aulas a ON h.id_aula = a.id_aula
+  JOIN grupo_materia_profesor gmp ON h.id_grupo_materia_profesor = gmp.id_grupo_materia_profesor
+  JOIN horas_horarios hh ON h.id_hora = hh.id_hora
+  WHERE gmp.id_profesor = ? AND gmp.periodo_horario = 'Julio - Diciembre 2024';
+  `;
+
+
+
+  const selectViewSQL = `
+  SELECT id_aula, nombre_aula
+  FROM vista_aulas_profesor
+  WHERE id_hora = (
+    SELECT id_hora
+    FROM horas_horarios
+    WHERE ? >= hora_inicio AND ? <= hora_fin -- Corregir la comparación de la hora actual con los rangos de horas
+    AND dia_semana = ? -- El día de la semana actual debe coincidir
+    LIMIT 1 
+  )
+  LIMIT 1;
+  `;
+
+  // Ejecutar la consulta para obtener la información del aula desde la vista
+  db.query(selectViewSQL, [horaMenosUnaHora, horaMenosUnaHora, dia], (selectViewErr, selectViewResult) => {
+    if (selectViewErr) {
+      console.error('Error al obtener la información del aula desde la vista:', selectViewErr);
+      res.status(500).json({ error: 'Error interno del servidor' });
+      return;
+    }
+
+    if (selectViewResult.length === 0) {
+      console.log('No se encontró un aula asignada al profesor para esta hora.');
+      res.status(404).json({ error: 'No se encontró un aula asignada al profesor para esta hora' });
+      return;
+    }
+
+    const { id_aula, nombre_aula } = selectViewResult[0];
+    aulaId = id_aula; // Asignar el ID del aula a la variable global
+    // Envía la información del aula como respuesta
+    res.json({ id_aula, nombre_aula });
+    console.log('Datos:', id_aula, nombre_aula);
+  });
+});
+
+
+
+// Ruta para cambiar el estado del aula
+app.post('/cambiar_estado_aula', (req, res) => {
+  const { estado } = req.body;
+
+  // Verificar si el estado es válido (1 para abierto, 0 para cerrado)
+  if (estado !== 0 && estado !== 1) {
+    return res.status(400).json({ message: 'Estado no válido' });
+  }
+
+  // Verificar si hay un ID de aula almacenado en la variable global
+  if (!aulaId) {
+    return res.status(404).json({ message: 'ID del aula no encontrado' });
+  }
+
+  // Actualizar el estado del aula en la base de datos
+  const sql = 'UPDATE aulas_iot SET estado = ? WHERE id_aula = ?';
+  db.query(sql, [estado, aulaId], (err, result) => {
+    if (err) {
+      console.error('Error al actualizar el estado del aula:', err);
+      res.status(500).json({ error: 'Error interno del servidor' });
+      return;
+    }
+
+    // Verificar si se actualizó correctamente
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Aula no encontrada' });
+      console.log('Aula no encontrada');
+    }
+
+    res.json({ message: 'Estado del aula actualizado correctamente' });
+    console.log('Estado del aula actualizado correctamente');
   });
 });
 
