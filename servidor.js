@@ -358,52 +358,22 @@ app.post('/cambiar_estado_aula', (req, res) => {
   });
 });
 
-app.get('/aulas_iot/:id', (req, res) => {
-  // Obtener el ID del aula de los parámetros de la URL
+router.get('/aulas_iot/:id', (req, res) => {
   const id = req.params.id;
-
-  // Verificar si hay un ID de aula en los parámetros de la URL
-  if (id) {
-    // Si el ID del aula está presente en los parámetros de la URL, utilizarlo
-    console.log("ID del aula obtenido de los parámetros de la URL:", id);
-    // Resto de tu lógica para manejar la solicitud utilizando el ID del aula obtenido de la URL
-    // Ejemplo: Consulta a la base de datos utilizando id
-    const query = 'SELECT estado FROM aulas_iot WHERE id_aulas_iot = ?';
-    connection.query(query, [id], (err, result) => {
-      if (err) {
-        console.error('Error al obtener la aula:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
-        return;
-      }
-      if (result.length === 0) {
-        res.status(404).json({ error: 'Aula no encontrada' });
-        return;
-      }
-      res.json(result[0]['estado']);
-    });
-  } else if (aulaId) {
-    // Si el ID del aula no está en los parámetros de la URL pero está almacenado globalmente, utilizarlo
-    console.log("ID del aula obtenido de la variable global:", aulaId);
-    // Resto de tu lógica para manejar la solicitud utilizando el ID del aula almacenado globalmente
-    // Ejemplo: Consulta a la base de datos utilizando aulaId
-    const query = 'SELECT estado FROM aulas_iot WHERE id_aulas_iot = ?';
-    connection.query(query, [aulaId], (err, result) => {
-      if (err) {
-        console.error('Error al obtener la aula:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
-        return;
-      }
-      if (result.length === 0) {
-        res.status(404).json({ error: 'Aula no encontrada' });
-        return;
-      }
-      res.json(result[0]['estado']);
-    });
-  } else {
-    // Si el ID del aula no está presente ni en los parámetros de la URL ni en la variable global, devolver un error
-    return res.status(404).json({ message: 'ID del aula no encontrado en los parámetros de la URL ni en la variable global' });
-  }
-});
+  const query = 'SELECT estado FROM aulas_iot WHERE id_aulas_iot = ?';
+  connection.query(query, [id], (err, result) => {
+    if (err) {
+      console.error('Error al obtener la aula:', err);
+      res.status(500).json({ error: 'Error interno del servidor' });
+      return;
+    }
+    if (result.length === 0) {
+      res.status(404).json({ error: 'Aula no encontrada' });
+      return;
+    }
+    res.json(result[0]['estado']);
+  });
+}); 
 
 
 app.get('/disponibilidad', (req, res) => {
@@ -437,7 +407,6 @@ app.get('/disponibilidad', (req, res) => {
     return res.status(200).json({ idDisponibilidadProfesor });
   });
 });
-
 app.get('/disponibilidad_horas', (req, res) => {
   if (!disponibilidad) {
     return res.status(400).json({ message: 'ID de disponibilidad no encontrado' });
